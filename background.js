@@ -107,19 +107,22 @@ chrome.storage.onChanged.addListener((changes, area) => {
 async function refreshUsage() {
   try {
     const tabs = await chrome.tabs.query({ url: "https://claude.ai/*" });
+    console.log("[CUM] bg: refreshUsage found", tabs.length, "claude.ai tab(s)");
     for (const tab of tabs) {
       try {
         const data = await chrome.tabs.sendMessage(tab.id, { type: "FETCH_USAGE" });
+        console.log("[CUM] bg: tab", tab.id, "(discarded=" + tab.discarded + ", status=" + tab.status + ") responded:", data ? "data" : "no data");
         if (data && (data.five_hour || data.seven_day)) {
           await handleUsage(data);
           return data;
         }
-      } catch (_) {
+      } catch (e) {
+        console.warn("[CUM] bg: sendMessage to tab", tab.id, "failed —", e && e.message);
         // content script not ready in this tab; try the next one
       }
     }
   } catch (e) {
-    console.warn("[Claude Usage Monitor] refresh failed", e);
+    console.warn("[CUM] bg: refresh failed", e);
   }
   return null;
 }
@@ -138,6 +141,7 @@ function normalize(data) {
 
 async function handleUsage(raw) {
   const usage = normalize(raw);
+  console.log("[CUM] bg: storing usage", usage);
   await chrome.storage.local.set({ usage, updatedAt: Date.now() });
   const settings = await getSettings();
   updateBadge(usage, settings);

@@ -5,6 +5,7 @@
 //   3. Render the animated in-page toast when the background asks.
 
 (function () {
+  console.log("[CUM] content.js loaded @", location.href);
   // Remember the endpoints the app actually used, so we can re-fetch them later.
   let discoveredUsageUrl = null;
   let discoveredSpendUrl = null;
@@ -32,6 +33,7 @@
     const msg = event.data;
     if (!msg || msg.source !== "cum-injected") return;
     if (msg.kind === "usage") {
+      console.log("[CUM] content: relaying captured usage ->", msg.url);
       if (msg.url && /usage/i.test(msg.url)) discoveredUsageUrl = msg.url;
       chrome.runtime.sendMessage({ type: "USAGE_CAPTURED", data: msg.data }).catch(() => {});
     } else if (msg.kind === "fields" && msg.fields && msg.fields.length) {
@@ -48,9 +50,11 @@
   async function tryJson(url) {
     try {
       const res = await fetch(url, { credentials: "include", headers: JSON_HEADERS });
+      console.log("[CUM] content: GET", url, "->", res.status);
       if (!res.ok) return null;
       return await res.json();
-    } catch (_) {
+    } catch (e) {
+      console.warn("[CUM] content: GET", url, "FAILED", e && e.message);
       return null;
     }
   }
@@ -136,13 +140,22 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.type) return;
     if (msg.type === "FETCH_USAGE") {
+      console.log("[CUM] content: FETCH_USAGE received, fetching same-origin…");
       // Opportunistically refresh spend too (fire-and-forget).
       fetchSpend()
         .then((s) => {
           if (s) chrome.runtime.sendMessage({ type: "NUMBERS_CAPTURED", fields: s.fields, url: s.url }).catch(() => {});
         })
         .catch(() => {});
-      fetchUsage().then((data) => sendResponse(data)).catch(() => sendResponse(null));
+      fetchUsage()
+        .then((data) => {
+          console.log("[CUM] content: fetchUsage result:", data ? "USAGE FOUND" : "null (no usage-shaped response)", data);
+          sendResponse(data);
+        })
+        .catch((e) => {
+          console.warn("[CUM] content: fetchUsage threw", e);
+          sendResponse(null);
+        });
       return true; // async
     }
     if (msg.type === "SHOW_TOAST" && msg.payload) {

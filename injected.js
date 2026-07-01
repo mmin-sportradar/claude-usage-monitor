@@ -8,6 +8,7 @@
   const TAG = "__cum_injected__";
   if (window[TAG]) return;
   window[TAG] = true;
+  console.log("[CUM] injected.js MAIN-world hook loaded @", location.href);
 
   function looksLikeUsage(obj) {
     return (
@@ -39,6 +40,7 @@
   function forward(url, obj) {
     const u = String(url || "");
     if (looksLikeUsage(obj)) {
+      console.log("[CUM] injected: captured USAGE from", u);
       window.postMessage(
         { source: "cum-injected", kind: "usage", url: u, data: obj },
         "*"

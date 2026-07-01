@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Build artifacts / distributables
+*.zip
+
+# Editor
+.vscode/
+.idea/

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <span class="logo">&#9889;</span>
+        <span class="name">Claude Usage</span>
+      </div>
+      <button id="settings" class="icon-btn" title="Settings">&#9881;</button>
+    </header>
+
+    <div id="meters" class="meters">
+      <!-- meters injected by popup.js -->
+    </div>
+
+    <div id="spend" class="spend hidden"></div>
+
+    <div id="empty" class="empty hidden">
+      <p>No usage data yet.</p>
+      <p class="hint">Open <b>claude.ai</b> in a tab and hit refresh.</p>
+    </div>
+
+    <footer>
+      <span id="updated" class="updated">—</span>
+      <button id="refresh" class="refresh">
+        <span class="ico">&#8635;</span> Refresh
+      </button>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

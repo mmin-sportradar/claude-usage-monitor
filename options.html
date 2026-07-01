@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Claude Usage Monitor — Settings</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(120% 120% at 100% 0%, #241f19 0%, #17130f 60%);
+      color: #f5efe7; min-height: 100vh; padding: 40px 20px;
+    }
+    .card {
+      max-width: 480px; margin: 0 auto;
+      background: linear-gradient(180deg, #262019, #201c18);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 18px; padding: 28px 30px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    h1 { font-size: 18px; display: flex; align-items: center; gap: 9px; margin-bottom: 4px; }
+    .logo { filter: drop-shadow(0 0 6px rgba(217,119,87,0.6)); }
+    .sub { color: #b9ab98; font-size: 13px; margin-bottom: 24px; }
+    .field { padding: 18px 0; border-top: 1px solid rgba(255,255,255,0.07); }
+    .field:first-of-type { border-top: none; }
+    .flabel { font-size: 14px; font-weight: 600; }
+    .fhint { font-size: 12px; color: #b9ab98; margin-top: 3px; }
+
+    .threshold-row { display: flex; align-items: center; gap: 16px; margin-top: 14px; }
+    input[type=range] { flex: 1; accent-color: #d97757; height: 4px; }
+    .tval {
+      font-size: 22px; font-weight: 700; color: #fbbf24; min-width: 58px; text-align: right;
+    }
+
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 14px;
+    }
+    .toggle-row .t { font-size: 13px; }
+    /* switch */
+    .switch { position: relative; width: 42px; height: 24px; flex: 0 0 auto; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; cursor: pointer; border-radius: 99px;
+      background: rgba(255,255,255,0.15); transition: background .2s;
+    }
+    .slider::before {
+      content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px;
+      background: #fff; border-radius: 50%; transition: transform .2s;
+    }
+    .switch input:checked + .slider { background: #d97757; }
+    .switch input:checked + .slider::before { transform: translateX(18px); }
+
+    .saved {
+      margin-top: 22px; font-size: 12px; color: #22c55e; height: 16px;
+      opacity: 0; transition: opacity .3s;
+    }
+    .saved.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1><span class="logo">&#9889;</span> Claude Usage Monitor</h1>
+    <div class="sub">Choose when and how you get alerted.</div>
+
+    <div class="field">
+      <div class="flabel">Alert threshold</div>
+      <div class="fhint">Notify me when usage crosses this percentage.</div>
+      <div class="threshold-row">
+        <input type="range" id="threshold" min="10" max="100" step="5" />
+        <span class="tval" id="tval">80%</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="flabel">Which limits to watch</div>
+      <div class="toggle-row">
+        <span class="t">5-hour session limit</span>
+        <label class="switch"><input type="checkbox" id="watchSession" /><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="t">7-day weekly limit</span>
+        <label class="switch"><input type="checkbox" id="watchWeekly" /><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="flabel">How to notify</div>
+      <div class="toggle-row">
+        <span class="t">Native Chrome notification</span>
+        <label class="switch"><input type="checkbox" id="enableNative" /><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="t">Animated in-page toast (on claude.ai)</span>
+        <label class="switch"><input type="checkbox" id="enableToast" /><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <div class="saved" id="saved">Saved &#10003;</div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

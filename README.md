@@ -44,15 +44,19 @@ everything locally.
 
 ## How it gets the data
 
-Two complementary sources, both using your logged-in session:
+Three complementary sources, all using your logged-in session:
 
-1. **Passive capture (`injected.js`)** — runs in the page and watches the usage requests
-   claude.ai itself makes, so the badge updates right after you send messages.
-2. **Active poll (`content.js`)** — every ~5 minutes the background worker asks an open
-   claude.ai tab to fetch usage same-origin.
+1. **Direct poll (`background.js`)** — every ~1 minute the background worker fetches the usage
+   endpoint itself, using the claude.ai host permission and your existing cookies. This needs
+   **no claude.ai tab open**, so the badge stays current even when you're only working in the
+   terminal (Claude Code) — terminal usage counts against the same shared 5h/7d pool.
+2. **Passive capture (`injected.js`)** — runs in any open claude.ai page and watches the usage
+   requests claude.ai itself makes, so the badge also updates right after you send messages there.
+3. **Tab fallback (`content.js`)** — if the worker's own request is refused, it asks an open
+   claude.ai tab to fetch usage in the page context.
 
-Live updates require a claude.ai tab to be open; otherwise the popup shows the last cached
-values.
+Because of source 1, updates no longer require a claude.ai tab; you only need to be **logged
+into claude.ai in this browser**. If you're logged out, the popup shows the last cached values.
 
 ### Extra-usage spend in the popup
 
@@ -62,10 +66,11 @@ read automatically from claude.ai's own field `spend.used.amount_minor` (divided
 `spend.used.exponent`, so minor units → dollars). It shows `$0.00` until you actually spend
 into extra usage. No setup — it just displays.
 
-> **Not the same as the terminal `$`.** The dollar figure in the Claude Code statusline is the
-> *session cost* (`cost.total_cost_usd`) — how much your current terminal session would cost at
-> API rates. That number lives in Claude Code and can't be read by a browser extension. The
-> extension's number is your claude.ai *extra-usage billing*, which is a separate thing.
+> **Not the same as the terminal `$`.** The dollar figure in the Claude Code statusline is your
+> *Claude Code token cost* (reconstructed at API rates, summed across all sessions for the day) —
+> how much your terminal usage would cost at API rates. That data lives in Claude Code's local
+> transcripts and can't be read by a browser extension. The extension's number is your claude.ai
+> *extra-usage billing*, which is a separate thing.
 
 ### If usage never appears
 
@@ -86,11 +91,20 @@ no token handling) and renders both meters with the same green/orange/red thresh
 extension:
 
 ```
-⚡ 5h ▉▉▉░░░░░ 34%·39m  ⚠ 7d ▉▉▉▉▉▉▉░ 83%·2d  $1.23
+⚡ 5h ▉▉▉░░░░░ 34%·39m  ⚠ 7d ▉▉▉▉▉▉▉░ 83%·2d  today $28.90
 ```
 
-The trailing `$1.23` is the **session spend** (`cost.total_cost_usd` from Claude Code) — the
-running cost of the current Claude Code session, shown when it's above $0.
+The trailing `today $28.90` is your **total Claude Code spend across *all* sessions/windows
+for the current local day** — not just the window you're looking at. Claude Code only hands the
+statusline the *current* session's `cost.total_cost_usd`, so to get a true daily total the script
+reconstructs per-message cost from the token usage recorded in the transcripts under
+`~/.claude/projects/*/*.jsonl` (input/output/cache tokens × per-model rates) and sums today's
+across every session. Results are cached per file (by mtime+size), so only transcripts that
+changed since the last render are re-parsed — it stays fast (~0.1s) even with many sessions.
+
+> This is a **reconstruction** at standard published API rates, so it's close to — but won't
+> exactly match — the per-session number Claude Code shows internally (which uses its own pricing
+> table and, on Pro/Max plans, is notional API-equivalent cost, not money billed to you).
 
 Installed to `~/.claude/statusline-usage.sh` and registered in `~/.claude/settings.json`:
 

@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const REFRESH_ALARM = "cum-refresh";
-const REFRESH_MINUTES = 5;
+const REFRESH_MINUTES = 1;
 
 // ---- settings helpers -------------------------------------------------------
 
@@ -55,16 +55,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "NUMBERS_CAPTURED" && msg.fields && msg.fields.length) {
-    (async () => {
-      const { fieldMap = {} } = await chrome.storage.local.get("fieldMap");
-      for (const f of msg.fields) fieldMap[f.path] = f.value; // merge by path
-      // Cap to keep storage small; keep the most recently seen entries.
-      const paths = Object.keys(fieldMap);
-      if (paths.length > 800) {
-        for (const p of paths.slice(0, paths.length - 800)) delete fieldMap[p];
-      }
-      await chrome.storage.local.set({ fieldMap, fieldsUpdatedAt: Date.now() });
-    })();
+    mergeFields(msg.fields);
     return;
   }
 
@@ -101,10 +92,143 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// ---- direct same-origin fetch (no tab required) -----------------------------
+// With host_permissions for claude.ai, the service worker can hit the usage
+// endpoints itself using the user's logged-in cookies. This is the primary
+// source: the badge/popup then reflect usage from ANY client sharing the pool
+// (claude.ai, Desktop, and Claude Code in the terminal) without a claude.ai tab
+// open and without a manual refresh.
+
+const CLAUDE_ORIGIN = "https://claude.ai";
+const JSON_HEADERS = { accept: "application/json, text/plain, */*" };
+
+async function tryJson(path) {
+  try {
+    const url = path.startsWith("http") ? path : CLAUDE_ORIGIN + path;
+    const res = await fetch(url, { credentials: "include", headers: JSON_HEADERS });
+    if (!res.ok) {
+      console.log("[CUM] bg: GET", path, "->", res.status);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.warn("[CUM] bg: GET", path, "FAILED", e && e.message);
+    return null;
+  }
+}
+
+function usageShaped(o) {
+  return o && typeof o === "object" && (o.five_hour || o.seven_day || o.seven_day_opus);
+}
+
+let cachedOrgId = null;
+async function getOrgId() {
+  if (cachedOrgId) return cachedOrgId;
+  const orgs = await tryJson("/api/organizations");
+  if (Array.isArray(orgs) && orgs.length) {
+    const chat = orgs.find(
+      (o) => Array.isArray(o.capabilities) && o.capabilities.includes("chat")
+    );
+    cachedOrgId = (chat || orgs[0]).uuid;
+  }
+  return cachedOrgId;
+}
+
+// Fetch usage straight from the worker. Returns usage-shaped data or null
+// (null typically means the browser isn't logged into claude.ai).
+async function fetchUsageDirect() {
+  const orgId = await getOrgId();
+  const candidates = [];
+  if (orgId) {
+    candidates.push(`/api/organizations/${orgId}/usage`);
+    candidates.push(`/api/organizations/${orgId}/usage_limits`);
+  }
+  candidates.push("/api/usage", "/api/bootstrap");
+
+  for (const url of candidates) {
+    const obj = await tryJson(url);
+    if (usageShaped(obj)) return obj;
+    if (obj && typeof obj === "object") {
+      for (const v of Object.values(obj)) if (usageShaped(v)) return v;
+    }
+  }
+  return null;
+}
+
+// Merge captured numeric fields (spend etc.) into storage, from any source.
+async function mergeFields(fields) {
+  const { fieldMap = {} } = await chrome.storage.local.get("fieldMap");
+  for (const f of fields) fieldMap[f.path] = f.value; // merge by path
+  // Cap to keep storage small; keep the most recently seen entries.
+  const paths = Object.keys(fieldMap);
+  if (paths.length > 800) {
+    for (const p of paths.slice(0, paths.length - 800)) delete fieldMap[p];
+  }
+  await chrome.storage.local.set({ fieldMap, fieldsUpdatedAt: Date.now() });
+}
+
+// Feature-flag / config noise that is never real spend — excluded from the scan.
+const PATH_BLOCK = /growthbook|feature|flag|experiment|statsig|segment|variant|ab_?test|launchdarkly/i;
+
+function scanNumbers(obj, path, out, depth) {
+  if (!obj || typeof obj !== "object" || depth > 7 || out.length >= 600) return out;
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    const p = path ? path + "." + k : k;
+    if (PATH_BLOCK.test(p)) continue;
+    if (typeof v === "number" && isFinite(v)) out.push({ path: p, value: v });
+    else if (v && typeof v === "object") scanNumbers(v, p, out, depth + 1);
+  }
+  return out;
+}
+
+// Fetch billing/usage endpoints from the worker and extract numbers, so the
+// extra-usage spend populates without a tab open (mirrors content.fetchSpend).
+async function refreshSpendDirect() {
+  const org = await getOrgId();
+  if (!org) return;
+  const base = `/api/organizations/${org}`;
+  const urls = [
+    `${base}/usage`,
+    `${base}/billing`,
+    `${base}/extra_usage`,
+    `${base}/credits`,
+    `${base}/credit`,
+    `${base}/settings`,
+    `${base}/subscription`,
+  ];
+  const seen = new Set();
+  const all = [];
+  for (const u of urls) {
+    const obj = await tryJson(u);
+    if (!obj) continue;
+    for (const f of scanNumbers(obj, "", [], 0)) {
+      if (!seen.has(f.path)) { seen.add(f.path); all.push(f); }
+    }
+  }
+  if (all.length) await mergeFields(all);
+}
+
 // ---- core: fetch, store, badge, notify --------------------------------------
 
-// Ask an open claude.ai tab's content script to fetch usage same-origin.
 async function refreshUsage() {
+  // 1. Direct same-origin fetch from the worker — needs no tab open, so it
+  //    keeps the badge current even when you're only in the terminal.
+  try {
+    const direct = await fetchUsageDirect();
+    if (direct && (direct.five_hour || direct.seven_day)) {
+      console.log("[CUM] bg: refreshUsage got data via direct fetch");
+      await handleUsage(direct);
+      refreshSpendDirect().catch(() => {}); // opportunistic, fire-and-forget
+      return direct;
+    }
+    console.log("[CUM] bg: direct fetch returned no usage; trying open tabs");
+  } catch (e) {
+    console.warn("[CUM] bg: direct fetch failed", e && e.message);
+  }
+
+  // 2. Fallback: ask an open claude.ai tab's content script to fetch it in the
+  //    page context (covers the case where the worker's own cookies are refused).
   try {
     const tabs = await chrome.tabs.query({ url: "https://claude.ai/*" });
     console.log("[CUM] bg: refreshUsage found", tabs.length, "claude.ai tab(s)");
